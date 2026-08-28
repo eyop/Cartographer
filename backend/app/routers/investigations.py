@@ -1,15 +1,19 @@
+﻿"""Investigation API router — status, graph, profile, and PDF report endpoints."""
+
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, StreamingResponse
 
 from ..dependencies import get_redis, verify_api_key
+from ..models.entity import ThreatProfile
 from ..models.investigation import InvestigationCreate, InvestigationRecord
 from ..services.job_queue import get_arq_pool
+from ..services.report import render_report_pdf
 
 router = APIRouter(
     prefix="/investigations",
     tags=["investigations"],
-    dependencies=[Depends(verify_api_key)],  # every route here requires the API key
+    dependencies=[Depends(verify_api_key)],
 )
 
 
@@ -52,10 +56,29 @@ async def get_graph(investigation_id: str, redis=Depends(get_redis)):
     return json.loads(data)["graph"]
 
 
+@router.get("/{investigation_id}/profile", response_model=ThreatProfile)
+async def get_profile(investigation_id: str, redis=Depends(get_redis)):
+    """Structured threat profile (summary + risk indicators + entities + relationships)."""
+    data = await redis.get(f"investigation:{investigation_id}:result")
+    if not data:
+        raise HTTPException(status_code=404, detail="Results not ready yet")
+    result = json.loads(data)
+    return ThreatProfile(**result["threat_profile"])
+
+
 @router.get("/{investigation_id}/report")
 async def get_report(investigation_id: str, redis=Depends(get_redis)):
-    """Streams the PDF report. Wired up in week 7 — see services/report.py."""
+    """Streams the PDF report for a completed investigation."""
     data = await redis.get(f"investigation:{investigation_id}:result")
     if not data:
         raise HTTPException(status_code=409, detail="Report not ready yet")
-    raise HTTPException(status_code=501, detail="PDF export not yet implemented (see week 7 / services/report.py)")
+    result = json.loads(data)
+    profile = ThreatProfile(**result["threat_profile"])
+    pdf_bytes = await render_report_pdf(profile)
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=report_{investigation_id}.pdf"
+        },
+    )
