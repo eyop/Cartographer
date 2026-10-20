@@ -26,11 +26,11 @@ class BaseHttpCollector(BaseCollector):
 
     source_name: str = "base"
 
-    def __init__(self, redis: Redis, http_client: httpx.AsyncClient):
+    def __init__(self, redis: Redis | None, http_client: httpx.AsyncClient | None):
         self.redis = redis
         self.http = http_client
-        self.rate_limiter = RateLimiter(redis)
-        self.cache = ResponseCache(redis)
+        self.rate_limiter = RateLimiter(redis) if redis is not None else None
+        self.cache = ResponseCache(redis) if redis is not None else None
 
     # -- subclasses implement this -------------------------------------------
 
@@ -49,13 +49,20 @@ class BaseHttpCollector(BaseCollector):
     # -- shared orchestration ------------------------------------------------
 
     async def _get_cached(self, target: str) -> dict | None:
+        if self.cache is None:
+            return None
         return await self.cache.get(self.source_name, target)
 
     async def _set_cached(self, target: str, response: dict) -> None:
+        if self.cache is None:
+            return None
         await self.cache.set(self.source_name, target, response)
 
     async def collect(self, target: str) -> list[RawFinding]:
         """Full pipeline: cache → rate-limit → fetch → cache → RawFinding."""
+        if self.redis is None or self.http is None:
+            return []
+
         # 1. cache hit
         cached = await self._get_cached(target)
         if cached is not None:

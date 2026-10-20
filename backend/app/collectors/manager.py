@@ -49,7 +49,19 @@ class CollectorManager:
         result = []
         for name in names:
             collector = self._collectors[name]
-            # ``can_handle`` is synchronous in practice — no I/O needed.
-            if collector.can_handle(target, target_type):
-                result.append(collector)
+            if not collector.can_handle(target, target_type):
+                continue
+
+            if name in {"github", "shodan", "virustotal", "hibp"}:
+                # These collectors are either API-key gated or should be excluded in a no-key environment.
+                configured = {
+                    "github": bool(settings.github_token),
+                    "shodan": bool(settings.shodan_api_key),
+                    "virustotal": bool(settings.virustotal_api_key),
+                    "hibp": bool(settings.hibp_api_key),
+                }.get(name, True)
+                if not configured:
+                    continue
+
+            result.append(collector)
         return result

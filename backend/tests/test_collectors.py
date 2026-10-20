@@ -22,6 +22,18 @@ class TestRouting:
         # Let me fix this: VT can_handle returns ("domain", "company") now
         assert "hibp" in ROUTING["email"]
 
+    def test_unconfigured_collectors_are_filtered_out(self):
+        from app.collectors.manager import CollectorManager
+
+        manager = CollectorManager(redis=None, http_client=None)
+        collectors = manager.get_collectors("example.com", "domain")
+        names = {c.source_name for c in collectors}
+        assert "dns" in names
+        assert "crtsh" in names
+        assert "shodan" not in names
+        assert "virustotal" not in names
+        assert "github" not in names
+
     def test_company_routes(self):
         assert set(ROUTING["company"]) == {"github", "crtsh", "shodan", "virustotal"}
 
@@ -70,6 +82,12 @@ class TestBaseCollector:
     def test_abstract_interface(self):
         assert hasattr(BaseCollector, "collect")
         assert hasattr(BaseCollector, "source_name")
+
+    def test_collect_returns_empty_without_runtime_services(self):
+        collector = DNSCollector(None, None)
+        findings = collector.collect("example.com")
+        import asyncio
+        assert asyncio.run(findings) == []
 
 
 class TestRateLimiterConfig:
