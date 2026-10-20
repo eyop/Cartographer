@@ -8,7 +8,7 @@ from ..models.entity import RawFinding
 
 
 class BaseCollector(ABC):
-    source_name: str
+    source_name: str = "base"
 
     @abstractmethod
     async def collect(self, target: str) -> list[RawFinding]:
