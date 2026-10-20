@@ -9,6 +9,7 @@ class TargetType(str, Enum):
     domain = "domain"
     email = "email"
     company = "company"
+    person = "person"
 
 
 class InvestigationStatus(str, Enum):

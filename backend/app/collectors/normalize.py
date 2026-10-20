@@ -104,19 +104,26 @@ _IP_RE = re.compile(r"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b")
 def _normalize_dns(builder: GraphBuilder, finding: RawFinding) -> None:
     """DNS resolution results — Cloudflare DoH A-record answers."""
     payload = finding.payload
-    query = finding.query
+    query = finding.query.rstrip(".").lower()
     builder.add_entity("domain", query, 1.0, [finding.source])
 
     for ans in payload.get("Answer", []):
-        if ans.get("type") == 1:  # A record
-            ip = ans.get("data")
-            name = (ans.get("name") or "").rstrip(".")
-            if ip:
-                builder.add_entity("ip", ip, 1.0, [finding.source])
-                builder.add_relationship(
-                    "domain", name or query, "ip", ip,
-                    "resolves_to", 0.95, [finding.source],
-                )
+        if ans.get("type") != 1:  # A record only
+            continue
+
+        ip = ans.get("data")
+        name = (ans.get("name") or "").rstrip(".").lower()
+        if not ip:
+            continue
+
+        if name and name != query:
+            continue
+
+        builder.add_entity("ip", ip, 1.0, [finding.source])
+        builder.add_relationship(
+            "domain", query, "ip", ip,
+            "resolves_to", 0.95, [finding.source],
+        )
 
 
 def _normalize_crtsh(builder: GraphBuilder, finding: RawFinding) -> None:
