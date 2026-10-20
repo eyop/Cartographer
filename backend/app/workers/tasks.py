@@ -32,38 +32,7 @@ async def run_investigation(ctx, investigation_id: str, target: str, target_type
             collectors = manager.get_collectors(target, target_type)
 
             if not collectors:
-                progress["phase"] = "no_collectors"
-                progress["status"] = "no usable collectors configured for this input"
-                await _update_status(
-                    redis, investigation_id, InvestigationStatus.running, progress=progress,
-                )
-                graph = {"entities": [], "relationships": []}
-                threat_profile = await synthesize_threat_profile(target, graph, [])
-                await redis.set(
-                    f"investigation:{investigation_id}:result",
-                    json.dumps({"threat_profile": threat_profile.model_dump(), "graph": graph}),
-                    ex=RESULT_TTL,
-                )
-                progress["phase"] = "completed"
-                await _update_status(
-                    redis, investigation_id, InvestigationStatus.completed, progress=progress,
-                )
-                return
-                progress["status"] = "no usable collectors configured for this input"
-                await _update_status(
-                    redis, investigation_id, InvestigationStatus.running, progress=progress,
-                )
-                graph = {"entities": [], "relationships": []}
-                threat_profile = await synthesize_threat_profile(target, graph, [])
-                await redis.set(
-                    f"investigation:{investigation_id}:result",
-                    json.dumps({"threat_profile": threat_profile.model_dump(), "graph": graph}),
-                    ex=RESULT_TTL,
-                )
-                progress["phase"] = "completed"
-                await _update_status(
-                    redis, investigation_id, InvestigationStatus.completed, progress=progress,
-                )
+                await _store_empty_result(redis, investigation_id, target, progress)
                 return
 
             # Run all collectors concurrently (each is internally rate-limited)
@@ -117,6 +86,31 @@ async def run_investigation(ctx, investigation_id: str, target: str, target_type
             error=str(e), progress=progress,
         )
         raise
+
+
+async def _store_empty_result(
+    redis,
+    investigation_id: str,
+    target: str,
+    progress: dict[str, str],
+) -> None:
+    """Persist a valid empty-result artifact when no collectors are usable."""
+    progress["phase"] = "no_collectors"
+    progress["status"] = "no usable collectors configured for this input"
+    await _update_status(
+        redis, investigation_id, InvestigationStatus.running, progress=progress,
+    )
+    graph = {"entities": [], "relationships": []}
+    threat_profile = await synthesize_threat_profile(target, graph, [])
+    await redis.set(
+        f"investigation:{investigation_id}:result",
+        json.dumps({"threat_profile": threat_profile.model_dump(), "graph": graph}),
+        ex=RESULT_TTL,
+    )
+    progress["phase"] = "completed"
+    await _update_status(
+        redis, investigation_id, InvestigationStatus.completed, progress=progress,
+    )
 
 
 async def _update_status(
