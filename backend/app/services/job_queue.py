@@ -13,5 +13,8 @@ _pool = None
 async def get_arq_pool():
     global _pool
     if _pool is None:
-        _pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+        try:
+            _pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+        except Exception:
+            raise RuntimeError("Unable to connect to Redis job queue") from None
     return _pool
