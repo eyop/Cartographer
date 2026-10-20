@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 
 from ..dependencies import get_redis, verify_api_key
 from ..models.entity import ThreatProfile
-from ..models.investigation import InvestigationCreate, InvestigationRecord
+from ..models.investigation import InvestigationCreate, InvestigationRecord, TargetType
 from ..services.job_queue import get_arq_pool
 from ..services.report import render_report_pdf
 
@@ -16,6 +16,38 @@ router = APIRouter(
     tags=["investigations"],
     dependencies=[Depends(verify_api_key)],
 )
+
+
+def _validate_target(target: str, target_type: TargetType) -> str:
+    sanitized = target.strip()
+    if not sanitized:
+        raise HTTPException(status_code=400, detail="Target must not be empty")
+
+    if target_type == TargetType.domain:
+        if "@" in sanitized or sanitized.count(".") == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Domain target should look like a domain like example.com",
+            )
+    elif target_type == TargetType.email:
+        if "@" not in sanitized:
+            raise HTTPException(
+                status_code=400,
+                detail="Email target must include an @ sign",
+            )
+    elif target_type == TargetType.company:
+        if "@" in sanitized:
+            raise HTTPException(
+                status_code=400,
+                detail="Company target should not look like an email address",
+            )
+    elif target_type == TargetType.person:
+        if "@" in sanitized:
+            raise HTTPException(
+                status_code=400,
+                detail="Person target should not look like an email address",
+            )
+    return sanitized
 
 
 @router.post("", response_model=InvestigationRecord, status_code=202)
@@ -29,7 +61,9 @@ async def create_investigation(payload: InvestigationCreate, redis=Depends(get_r
             detail="You must confirm authorization to investigate this target",
         )
 
-    record = InvestigationRecord(target=payload.target, target_type=payload.target_type)
+    sanitized = _validate_target(payload.target, payload.target_type)
+
+    record = InvestigationRecord(target=sanitized, target_type=payload.target_type)
     await redis.set(f"investigation:{record.id}", record.model_dump_json(), ex=60 * 60 * 24)
 
     try:

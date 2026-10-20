@@ -20,13 +20,29 @@ class InvestigationStatus(str, Enum):
 
 
 class InvestigationCreate(BaseModel):
-    target: str
+    target: str = Field(
+        ..., min_length=1,
+        description="Human-readable target identifier to investigate.",
+    )
     target_type: TargetType
     authorized: bool = Field(
         ...,
         description="Caller confirms they are authorized to investigate this target. "
         "Requests with authorized=False are rejected before anything is queued.",
     )
+
+    @property
+    def normalized_target(self) -> str:
+        return self.target.strip()
+
+    @classmethod
+    def model_validate(cls, obj, *args, **kwargs):
+        if isinstance(obj, dict):
+            target = obj.get("target")
+            if isinstance(target, str):
+                obj = dict(obj)
+                obj["target"] = target.strip()
+        return super().model_validate(obj, *args, **kwargs)
 
 
 class InvestigationRecord(BaseModel):

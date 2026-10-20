@@ -52,3 +52,33 @@ def test_create_investigation_returns_503_when_queue_unavailable(monkeypatch):
         assert "queue" in resp.json()["detail"].lower()
     finally:
         app.dependency_overrides.clear()
+
+
+def test_create_investigation_rejects_blank_target():
+    app.dependency_overrides[get_redis] = lambda: None
+    app.dependency_overrides[verify_api_key] = lambda: None
+
+    try:
+        resp = client.post(
+            "/investigations",
+            json={"target": "   ", "target_type": "domain", "authorized": True},
+        )
+        assert resp.status_code == 400
+        assert "empty" in resp.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_create_investigation_rejects_mismatched_target_type():
+    app.dependency_overrides[get_redis] = lambda: None
+    app.dependency_overrides[verify_api_key] = lambda: None
+
+    try:
+        resp = client.post(
+            "/investigations",
+            json={"target": "user@example.com", "target_type": "domain", "authorized": True},
+        )
+        assert resp.status_code == 400
+        assert "domain" in resp.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.clear()
