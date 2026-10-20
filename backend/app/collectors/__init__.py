@@ -1,5 +1,6 @@
 """Collector package — concrete source collectors and the normalization layer."""
 
+from ..models.entity import RawFinding
 from .base import BaseCollector
 from .base_http import BaseHttpCollector
 from .cache import ResponseCache
@@ -22,6 +23,7 @@ __all__ = [
     "GitHubCollector",
     "HIBPCollector",
     "RateLimiter",
+    "RawFinding",
     "ResponseCache",
     "ShodanCollector",
     "TokenBucket",

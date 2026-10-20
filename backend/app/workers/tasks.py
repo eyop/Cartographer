@@ -32,7 +32,39 @@ async def run_investigation(ctx, investigation_id: str, target: str, target_type
             collectors = manager.get_collectors(target, target_type)
 
             if not collectors:
-                raise ValueError(f"No collectors available for target_type='{target_type}'")
+                progress["phase"] = "no_collectors"
+                progress["status"] = "no usable collectors configured for this input"
+                await _update_status(
+                    redis, investigation_id, InvestigationStatus.running, progress=progress,
+                )
+                graph = {"entities": [], "relationships": []}
+                threat_profile = await synthesize_threat_profile(target, graph, [])
+                await redis.set(
+                    f"investigation:{investigation_id}:result",
+                    json.dumps({"threat_profile": threat_profile.model_dump(), "graph": graph}),
+                    ex=RESULT_TTL,
+                )
+                progress["phase"] = "completed"
+                await _update_status(
+                    redis, investigation_id, InvestigationStatus.completed, progress=progress,
+                )
+                return
+                progress["status"] = "no usable collectors configured for this input"
+                await _update_status(
+                    redis, investigation_id, InvestigationStatus.running, progress=progress,
+                )
+                graph = {"entities": [], "relationships": []}
+                threat_profile = await synthesize_threat_profile(target, graph, [])
+                await redis.set(
+                    f"investigation:{investigation_id}:result",
+                    json.dumps({"threat_profile": threat_profile.model_dump(), "graph": graph}),
+                    ex=RESULT_TTL,
+                )
+                progress["phase"] = "completed"
+                await _update_status(
+                    redis, investigation_id, InvestigationStatus.completed, progress=progress,
+                )
+                return
 
             # Run all collectors concurrently (each is internally rate-limited)
             raw_results = await asyncio.gather(

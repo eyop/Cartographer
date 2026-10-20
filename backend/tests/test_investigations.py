@@ -82,3 +82,65 @@ def test_create_investigation_rejects_mismatched_target_type():
         assert "domain" in resp.json()["detail"].lower()
     finally:
         app.dependency_overrides.clear()
+
+
+def test_run_investigation_handles_no_available_collectors(monkeypatch):
+    import asyncio
+    import json
+
+    from app.workers.tasks import run_investigation
+
+    class FakeRedis:
+        def __init__(self):
+            self.store = {}
+
+        async def set(self, key, value, ex=None):
+            self.store[key] = value
+
+        async def get(self, key):
+            return self.store.get(key)
+
+    fake_redis = FakeRedis()
+
+    class FakeManager:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_collectors(self, *args, **kwargs):
+            return []
+
+    async def fake_synthesize(target, graph, findings):
+        class P:
+            def __init__(self):
+                self.target = target
+                self.summary = "empty run"
+                self.risk_indicators = []
+                self.entities = []
+                self.relationships = []
+                self.generated_at = None
+                self.model_version = "fallback-v1"
+
+            def model_dump(self):
+                return {
+                    "target": self.target,
+                    "summary": self.summary,
+                    "risk_indicators": self.risk_indicators,
+                    "entities": self.entities,
+                    "relationships": self.relationships,
+                    "generated_at": None,
+                    "model_version": self.model_version,
+                }
+
+        return P()
+
+    monkeypatch.setattr("app.workers.tasks.CollectorManager", FakeManager)
+    monkeypatch.setattr("app.workers.tasks.normalize", lambda items: {"entities": [], "relationships": []})
+    monkeypatch.setattr("app.workers.tasks.synthesize_threat_profile", fake_synthesize)
+
+    async def _go():
+        await run_investigation({"redis": fake_redis}, "job-123", "example.com", "domain")
+        result = json.loads(fake_redis.store["investigation:job-123:result"])
+        assert result["graph"] == {"entities": [], "relationships": []}
+        assert result["threat_profile"]["target"] == "example.com"
+
+    asyncio.run(_go())
