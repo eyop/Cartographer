@@ -2,7 +2,8 @@
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 
 from ..dependencies import get_redis, verify_api_key
 from ..models.entity import ThreatProfile
@@ -31,8 +32,19 @@ async def create_investigation(payload: InvestigationCreate, redis=Depends(get_r
     record = InvestigationRecord(target=payload.target, target_type=payload.target_type)
     await redis.set(f"investigation:{record.id}", record.model_dump_json(), ex=60 * 60 * 24)
 
-    pool = await get_arq_pool()
-    await pool.enqueue_job("run_investigation", record.id, record.target, record.target_type.value)
+    try:
+        pool = await get_arq_pool()
+        await pool.enqueue_job(
+            "run_investigation",
+            record.id,
+            record.target,
+            record.target_type.value,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Investigation queue unavailable: {exc}",
+        ) from exc
 
     return record
 
