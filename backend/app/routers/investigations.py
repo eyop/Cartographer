@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from ..dependencies import get_redis, verify_api_key
 from ..models.entity import ThreatProfile
 from ..models.investigation import InvestigationCreate, InvestigationRecord, TargetType
-from ..services.job_queue import get_arq_pool
+from ..services.job_queue import InMemoryJobQueue, get_arq_pool
 from ..services.report import render_report_pdf
 
 router = APIRouter(
@@ -68,12 +68,21 @@ async def create_investigation(payload: InvestigationCreate, redis=Depends(get_r
 
     try:
         pool = await get_arq_pool()
-        await pool.enqueue_job(
-            "run_investigation",
-            record.id,
-            record.target,
-            record.target_type.value,
-        )
+        if isinstance(pool, InMemoryJobQueue):
+            await pool.enqueue_job(
+                "run_investigation",
+                {"redis": redis},
+                record.id,
+                record.target,
+                record.target_type.value,
+            )
+        else:
+            await pool.enqueue_job(
+                "run_investigation",
+                record.id,
+                record.target,
+                record.target_type.value,
+            )
     except Exception as exc:
         raise HTTPException(
             status_code=503,
