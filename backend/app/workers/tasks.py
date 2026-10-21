@@ -19,6 +19,24 @@ from ..synthesis.chain import synthesize_threat_profile
 RESULT_TTL = 60 * 60 * 24
 
 
+def _json_safe(value):
+    """Convert Pydantic / dataclass-like objects into JSON-safe Python values."""
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if hasattr(value, "model_dump"):
+        try:
+            return _json_safe(value.model_dump(mode="json"))
+        except TypeError:
+            return _json_safe(value.model_dump())
+    return value
+
+
 async def run_investigation(ctx, investigation_id: str, target: str, target_type: str):
     redis = ctx["redis"]
     await _update_status(redis, investigation_id, InvestigationStatus.running)
@@ -71,7 +89,7 @@ async def run_investigation(ctx, investigation_id: str, target: str, target_type
         # 4. Store results in Redis
         await redis.set(
             f"investigation:{investigation_id}:result",
-            json.dumps({"threat_profile": threat_profile.model_dump(), "graph": graph}),
+            json.dumps({"threat_profile": _json_safe(threat_profile), "graph": graph}),
             ex=RESULT_TTL,
         )
         progress["phase"] = "completed"
@@ -104,7 +122,7 @@ async def _store_empty_result(
     threat_profile = await synthesize_threat_profile(target, graph, [])
     await redis.set(
         f"investigation:{investigation_id}:result",
-        json.dumps({"threat_profile": threat_profile.model_dump(), "graph": graph}),
+        json.dumps({"threat_profile": _json_safe(threat_profile), "graph": graph}),
         ex=RESULT_TTL,
     )
     progress["phase"] = "completed"

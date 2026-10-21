@@ -110,8 +110,10 @@ def test_create_investigation_uses_in_memory_queue_fallback(monkeypatch):
 
 
 def test_create_investigation_executes_local_fallback_job(monkeypatch):
+    shared_redis = FakeRedis()
+
     async def fake_redis_dep():
-        return FakeRedis()
+        return shared_redis
 
     app.dependency_overrides[get_redis] = fake_redis_dep
     app.dependency_overrides[verify_api_key] = lambda: None
@@ -129,7 +131,7 @@ def test_create_investigation_executes_local_fallback_job(monkeypatch):
         assert resp.status_code == 202
         job_id = resp.json()["id"]
 
-        for _ in range(50):
+        for _ in range(100):
             result = client.get(f"/investigations/{job_id}/graph")
             if result.status_code == 200:
                 assert result.json() == {"entities": [], "relationships": []}
