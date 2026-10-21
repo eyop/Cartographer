@@ -1,14 +1,15 @@
 """arq worker entrypoint. Run with: arq app.workers.worker.WorkerSettings"""
 
 from arq.connections import RedisSettings
+from redis.asyncio import Redis
 
 from ..config import settings
+from ..dependencies import FallbackRedis
 from .tasks import run_investigation
 
 
 async def startup(ctx):
-    from redis.asyncio import Redis
-    ctx["redis"] = Redis.from_url(settings.redis_url, decode_responses=True)
+    ctx["redis"] = FallbackRedis(Redis.from_url(settings.redis_url, decode_responses=True))
 
 
 async def shutdown(ctx):
