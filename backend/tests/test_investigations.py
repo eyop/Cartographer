@@ -1,7 +1,9 @@
+from fastapi.testclient import TestClient
+
 from app.dependencies import get_redis, verify_api_key
 from app.main import app
 
-client = __import__("fastapi").testclient.TestClient(app)
+client = TestClient(app)
 
 
 class FakeRedis:
@@ -80,6 +82,29 @@ def test_create_investigation_rejects_mismatched_target_type():
         )
         assert resp.status_code == 400
         assert "domain" in resp.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_create_investigation_uses_in_memory_queue_fallback(monkeypatch):
+    async def fake_redis_dep():
+        return FakeRedis()
+
+    app.dependency_overrides[get_redis] = fake_redis_dep
+    app.dependency_overrides[verify_api_key] = lambda: None
+
+    async def fake_pool_init():
+        raise RuntimeError("Redis unavailable")
+
+    monkeypatch.setattr("app.services.job_queue.create_pool", fake_pool_init)
+
+    try:
+        resp = client.post(
+            "/investigations",
+            json={"target": "example.com", "target_type": "domain", "authorized": True},
+        )
+        assert resp.status_code == 202
+        assert resp.json()["target"] == "example.com"
     finally:
         app.dependency_overrides.clear()
 
