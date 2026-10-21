@@ -109,6 +109,39 @@ def test_create_investigation_uses_in_memory_queue_fallback(monkeypatch):
         app.dependency_overrides.clear()
 
 
+def test_create_investigation_executes_local_fallback_job(monkeypatch):
+    async def fake_redis_dep():
+        return FakeRedis()
+
+    app.dependency_overrides[get_redis] = fake_redis_dep
+    app.dependency_overrides[verify_api_key] = lambda: None
+
+    async def fake_pool_init():
+        raise RuntimeError("Redis unavailable")
+
+    monkeypatch.setattr("app.services.job_queue.create_pool", fake_pool_init)
+
+    try:
+        resp = client.post(
+            "/investigations",
+            json={"target": "example.com", "target_type": "domain", "authorized": True},
+        )
+        assert resp.status_code == 202
+        job_id = resp.json()["id"]
+
+        for _ in range(50):
+            result = client.get(f"/investigations/{job_id}/graph")
+            if result.status_code == 200:
+                assert result.json() == {"entities": [], "relationships": []}
+                break
+            import time
+            time.sleep(0.05)
+        else:
+            raise AssertionError("fallback job did not produce graph output")
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_run_investigation_handles_no_available_collectors(monkeypatch):
     import asyncio
     import json
