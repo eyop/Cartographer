@@ -3,28 +3,29 @@ from redis.asyncio import Redis
 
 from .config import settings
 
+_SHARED_REDIS = None
+
 
 class MemoryRedis:
     """Fallback store used when Redis is unavailable locally or in limited runtimes."""
 
-    def __init__(self):
-        self.store = {}
+    store = {}
 
     async def set(self, key, value, ex=None):
-        self.store[key] = value
+        self.__class__.store[key] = value
 
     async def get(self, key):
-        return self.store.get(key)
+        return self.__class__.store.get(key)
 
     async def delete(self, key):
-        self.store.pop(key, None)
+        self.__class__.store.pop(key, None)
 
     async def aclose(self):
-        self.store.clear()
+        self.__class__.store.clear()
 
 
 class FallbackRedis:
-    """Proxy that falls back to an in-memory store when Redis is unreachable."""
+    """Proxy that falls back to a shared in-memory store when Redis is unreachable."""
 
     def __init__(self, redis_client: Redis | None):
         self._redis = redis_client
@@ -61,9 +62,15 @@ class FallbackRedis:
 
 
 async def get_redis() -> FallbackRedis:
-    """FastAPI dependency: use Redis when available, otherwise an in-memory fallback."""
-    redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
-    return FallbackRedis(redis_client)
+    """FastAPI dependency: return a shared Redis-like client while preserving an in-memory fallback."""
+    global _SHARED_REDIS
+    if _SHARED_REDIS is None:
+        try:
+            redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
+            _SHARED_REDIS = FallbackRedis(redis_client)
+        except Exception:
+            _SHARED_REDIS = FallbackRedis(None)
+    return _SHARED_REDIS
 
 
 async def verify_api_key(x_api_key: str = Header(...)) -> None:
