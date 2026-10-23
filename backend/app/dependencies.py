@@ -17,8 +17,39 @@ class MemoryRedis:
     async def get(self, key):
         return self.__class__.store.get(key)
 
+    async def setex(self, key, ttl, value):
+        self.__class__.store[key] = value
+
     async def delete(self, key):
         self.__class__.store.pop(key, None)
+
+    async def eval(self, script, keys=None, args=None):
+        keys = keys or []
+        args = args or []
+        if not keys:
+            return 0
+
+        key = keys[0]
+        capacity = float(args[0])
+        refill_rate = float(args[1])
+        now = float(args[2])
+
+        bucket = self.__class__.store.setdefault(key, {"tokens": capacity, "timestamp": now})
+        tokens = float(bucket.get("tokens", capacity))
+        last_ts = float(bucket.get("timestamp", now))
+        elapsed = now - last_ts
+        if elapsed > 0:
+            tokens = min(capacity, tokens + elapsed * refill_rate)
+        tokens = max(0.0, tokens)
+
+        if tokens < 1:
+            bucket["tokens"] = tokens
+            bucket["timestamp"] = now
+            return 0
+
+        bucket["tokens"] = tokens - 1
+        bucket["timestamp"] = now
+        return 1
 
     async def aclose(self):
         self.__class__.store.clear()
@@ -30,6 +61,11 @@ class FallbackRedis:
     def __init__(self, redis_client: Redis | None):
         self._redis = redis_client
         self._memory = MemoryRedis()
+
+    def __getattr__(self, name):
+        if hasattr(self._memory, name):
+            return getattr(self._memory, name)
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
     async def set(self, key, value, ex=None):
         try:
@@ -46,6 +82,14 @@ class FallbackRedis:
             return await self._redis.get(key)
         except Exception:
             return await self._memory.get(key)
+
+    async def setex(self, key, ttl, value):
+        try:
+            if self._redis is None:
+                raise RuntimeError("redis unavailable")
+            return await self._redis.setex(key, ttl, value)
+        except Exception:
+            return await self._memory.setex(key, ttl, value)
 
     async def delete(self, key):
         try:
